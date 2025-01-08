@@ -1,6 +1,12 @@
 import cv2
 import numpy as np
 import time
+import math
+import socket
+
+# Robot's IP address and port
+robot_ip = "169.254.56.120"
+robot_port = 30003
 
 from scipy.sparse import hstack
 
@@ -76,16 +82,16 @@ def get_move():
         popo=[[position[0]],[position[1]],[position[2]]]
         T_base_tcp = np.hstack([rotation_matrix2,popo])
         T_base_tcp = np.vstack([T_base_tcp, [0,0,0,1]])
-        print(T_base_tcp)
+        # print(T_base_tcp)
 
         #convertion en matrice 4x4 of the aruco
         pipi=[[tvecs[0,0,0]],[tvecs[0,0,1]],[tvecs[0,0,2]]]
         T_tcp_aruco = np.hstack([rotation_matrix,pipi])
         T_tcp_aruco = np.vstack([T_tcp_aruco, [0,0,0,1]])
-        print(T_tcp_aruco)
+        # print(T_tcp_aruco)
 
         T_base_aruco = np.dot(T_base_tcp, T_tcp_aruco)
-        print(T_base_aruco)
+        # print(T_base_aruco)
         time.sleep(1)
 
         # Extract position and orientation
@@ -100,8 +106,9 @@ def get_move():
         clean_output = tutu.replace("[", "").replace("]", "").replace("\n", "").strip()
         # clean_output = ", ".join(clean_output.split())  # Ensure proper spacing
 
-        command="movel(posetrans(p["+str(round(t_base_aruco[0],4))+","+str(round(t_base_aruco[1],4))+","+str(round(t_base_aruco[2],4))+","+clean_output+"],p[0,0,0.3,0,3.142,0]),a=0.2,v=0.2)"
-        print(command)
+        command="current_pose = p["+str(round(t_base_aruco[0],4))+","+str(round(t_base_aruco[1],4))+","+str(round(t_base_aruco[2],4))+","+clean_output+"]"
+
+        # print(command)
         for i in range(len(ids)):
             # Draw the marker border
             cv2.aruco.drawDetectedMarkers(frame, corners, ids)
@@ -121,14 +128,31 @@ def get_move():
 
     # Display the resulting frame
     cv2.imshow('ArUco Detection with Axis', frame)
-
+    return command
     # Press 'q' to exit
     if cv2.waitKey(1) & 0xFF == ord('q'):
         return None
+for i in range(4):
+    command=get_move()
+    tcp_command2 = """
+def move():
+    """+command+"""
+    target_pose = pose_trans(current_pose, p[0.0, 0, 0.2, 0.0, 3.142, 0.0])
+    movel(target_pose, a=0.1, v=0.1)
+end
+move()
+"""
+    # send the command
+    # Create a socket connection
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.connect((robot_ip, robot_port))
 
-while True:
-    get_move()
-    time.sleep(1)
+    # Send the URScript
+    print(tcp_command2)
+    s.send(str.encode(tcp_command2))
+    # Close the connection
+    time.sleep(2)
+s.close()
 # Release the capture and close windows
 # cap.release()
 # cv2.destroyAllWindows()
