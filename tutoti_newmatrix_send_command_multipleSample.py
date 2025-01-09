@@ -37,103 +37,141 @@ if not cap.isOpened():
     print("Error: Cannot access the camera.")
     exit()
 
-print("Press 'q' to exit the program.")
-
-def get_move():
+def get_rotation_matrix(samples): #function that returns rvec and tvec of the aruco
     # Capture frame-by-frame
-    ret, frame = cap.read()
-    if not ret:
-        print("Failed to grab frame.")
-        return None
+    vectorTable = []
+    for i in range(samples):
+        ret, frame = cap.read()
+        if not ret:
+            print("Failed to grab frame.")
+            return None
 
-    # Rotate the image by 180 degrees
-# frame = cv2.rotate(frame, cv2.ROTATE_180)
+        # Rotate the image by 180 degrees if necessary
+        # frame = cv2.rotate(frame, cv2.ROTATE_180)
 
-    # Convert frame to grayscale
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        # Convert frame to grayscale
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        # Detect ArUco markers
+        corners, ids, rejected = cv2.aruco.detectMarkers(gray, aruco_dict, parameters=parameters)
+        if ids is not None:
+            # Estimate pose for each marker
+            rvecs, tvecs, _ = cv2.aruco.estimatePoseSingleMarkers(corners, marker_length, camera_matrix, dist_coeffs)
+            newRow = [rvecs, tvecs]
+            vectorTable.append(newRow)
 
-    # Detect ArUco markers
-    corners, ids, rejected = cv2.aruco.detectMarkers(gray, aruco_dict, parameters=parameters)
+            show_frame(ids,frame, corners, rvecs, tvecs)
 
-    if ids is not None:
-        # Estimate pose for each marker
-        rvecs, tvecs, _ = cv2.aruco.estimatePoseSingleMarkers(corners, marker_length, camera_matrix, dist_coeffs)
+    # average of all the measurement taken
+    for row in vectorTable:
+        #mean translation vector
+        rvecs2 = row[0]
+        tvecs2 = row[1]
 
-        position = robot.get_actual_tcp_pose()
-        print(position)
-        tcp_rotation = np.array([[[position[3], position[4], position[5]]]])
-        tcp_translation = np.array([[position[0]], [position[1]], [position[2]]])
+        TXsum =+ tvecs2[0,0,0]
+        TYsum =+ tvecs2[0,0,1]
+        TZsum =+ tvecs2[0,0,2]
 
-        # Convert rotation vector to rotation matrix
-        for rvec, tvec in zip(rvecs, tvecs):
-            # Convert rvec to rotation matrix
-            rotation_matrix, _ = cv2.Rodrigues(rvec)
-            print("Rotation Vector (rvec):\n", rvec)
-            print("Rotation Matrix:\n", rotation_matrix)
+        #mean rotation vector
+        RXsum = + rvecs2[0, 0, 0]
+        RYsum = + rvecs2[0, 0, 1]
+        RZsum = + rvecs2[0, 0, 2]
 
-        # Convert rotation vector to rotation matrix from ur
-        for tcp_rotation, tcp_translation in zip(tcp_rotation, tcp_translation):
-            # Convert rvec to rotation matrix
-            rotation_matrix2, _ = cv2.Rodrigues(tcp_rotation)
-            print("Rotation Vector (rvec):\n", tcp_rotation)
-            print("Rotation Matrix:\n", rotation_matrix)
+    rvecs[0, 0, 0] = RXsum / len(vectorTable)
+    rvecs[0, 0, 1] = RYsum / len(vectorTable)
+    rvecs[0, 0, 2] = RZsum / len(vectorTable)
 
-        #convertion en matrice 4x4 of the UR
-        popo=[[position[0]],[position[1]],[position[2]]]
-        T_base_tcp = np.hstack([rotation_matrix2,popo])
-        T_base_tcp = np.vstack([T_base_tcp, [0,0,0,1]])
-        # print(T_base_tcp)
+    tvecs[0, 0, 0] = TXsum / len(vectorTable)
+    tvecs[0, 0, 1] = TYsum / len(vectorTable)
+    tvecs[0, 0, 2] = TZsum / len(vectorTable)
 
-        #convertion en matrice 4x4 of the aruco
-        pipi=[[tvecs[0,0,0]],[tvecs[0,0,1]],[tvecs[0,0,2]]]
-        T_tcp_aruco = np.hstack([rotation_matrix,pipi])
-        T_tcp_aruco = np.vstack([T_tcp_aruco, [0,0,0,1]])
-        # print(T_tcp_aruco)
+    return rvecs, tvecs
 
-        T_base_aruco = np.dot(T_base_tcp, T_tcp_aruco)
-        # print(T_base_aruco)
-        time.sleep(1)
+def show_frame(ids,frame,corners,rvecs,tvecs):#function tha draw axis on image
+    # print(command)
+    for i in range(len(ids)):
+        # Draw the marker border
+        cv2.aruco.drawDetectedMarkers(frame, corners, ids)
 
-        # Extract position and orientation
-        R_base_aruco = T_base_aruco[:3, :3]
-        t_base_aruco = T_base_aruco[:3, 3]
+        # Draw the axis on the marker
+        cv2.drawFrameAxes(frame, camera_matrix, dist_coeffs, rvecs[i], tvecs[i], marker_length / 2)
 
-        # Convert rotation matrix to rotation vector
-        rotation_, _ = cv2.Rodrigues(R_base_aruco)
-        rotation_=np.round(rotation_,4)
-        #mise en forme
-        tutu = np.array2string(rotation_, separator=', ', suppress_small=True, formatter={'all': lambda x: str(x)}).strip("[]")
-        clean_output = tutu.replace("[", "").replace("]", "").replace("\n", "").strip()
-        # clean_output = ", ".join(clean_output.split())  # Ensure proper spacing
+        # Display the ID of the marker
+        center = np.mean(corners[i][0], axis=0).astype(int)
+        cv2.putText(frame, f"ID: {ids[i][0]}", (center[0], center[1] - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
 
-        command="current_pose = p["+str(round(t_base_aruco[0],4))+","+str(round(t_base_aruco[1],4))+","+str(round(t_base_aruco[2],4))+","+clean_output+"]"
-
-        # print(command)
-        for i in range(len(ids)):
-            # Draw the marker border
-            cv2.aruco.drawDetectedMarkers(frame, corners, ids)
-
-            # Draw the axis on the marker
-            cv2.drawFrameAxes(frame, camera_matrix, dist_coeffs, rvecs[i], tvecs[i], marker_length / 2)
-
-            # Display the ID of the marker
-            center = np.mean(corners[i][0], axis=0).astype(int)
-            cv2.putText(frame, f"ID: {ids[i][0]}", (center[0], center[1] - 10),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
-
-            # Calculate the offset from the center of the image
-            image_center = np.array([frame.shape[1] / 2, frame.shape[0] / 2])
-            offset = center - image_center
-            # print(f"Marker ID: {ids[i][0]} - Offset from center (x, y): ({offset[0]}, {offset[1]})")
+        # Calculate the offset from the center of the image
+        image_center = np.array([frame.shape[1] / 2, frame.shape[0] / 2])
+        offset = center - image_center
+        # print(f"Marker ID: {ids[i][0]} - Offset from center (x, y): ({offset[0]}, {offset[1]})")
 
     # Display the resulting frame
     cv2.imshow('ArUco Detection with Axis', frame)
+
+def matrix_calculation(rvecs, tvecs): #function that outputs the command for the robot according to aruco position
+    position = robot.get_actual_tcp_pose()
+    tcp_rotation = np.array([[[position[3], position[4], position[5]]]])
+    tcp_translation = np.array([[position[0]], [position[1]], [position[2]]])
+
+    # Convert rotation vector to rotation matrix
+    for rvec, tvec in zip(rvecs, tvecs):
+        # Convert rvec to rotation matrix
+        rotation_matrix, _ = cv2.Rodrigues(rvec)
+        print("Rotation Vector (rvec):\n", rvec)
+        print("Rotation Matrix:\n", rotation_matrix)
+
+    # Convert rotation vector to rotation matrix from ur
+    for tcp_rotation, tcp_translation in zip(tcp_rotation, tcp_translation):
+        # Convert rvec to rotation matrix
+        rotation_matrix2, _ = cv2.Rodrigues(tcp_rotation)
+        print("Rotation Vector (rvec):\n", tcp_rotation)
+        print("Rotation Matrix:\n", rotation_matrix)
+
+    # convertion en matrice 4x4 of the UR
+    popo = [[position[0]], [position[1]], [position[2]]]
+    T_base_tcp = np.hstack([rotation_matrix2, popo])
+    T_base_tcp = np.vstack([T_base_tcp, [0, 0, 0, 1]])
+    # print(T_base_tcp)
+
+    # convertion en matrice 4x4 of the aruco
+    pipi = [[tvecs[0,0,0]], [tvecs[0,0,1]], [tvecs[0,0,2]]]
+    T_tcp_aruco = np.hstack([rotation_matrix, pipi])
+    T_tcp_aruco = np.vstack([T_tcp_aruco, [0, 0, 0, 1]])
+    # print(T_tcp_aruco)
+
+    T_base_aruco = np.dot(T_base_tcp, T_tcp_aruco)
+    # print(T_base_aruco)
+    time.sleep(1)
+
+    # Extract position and orientation
+    R_base_aruco = T_base_aruco[:3, :3]
+    t_base_aruco = T_base_aruco[:3, 3]
+
+    # Convert rotation matrix to rotation vector
+    rotation_, _ = cv2.Rodrigues(R_base_aruco)
+    rotation_ = np.round(rotation_, 4)
+    # mise en forme
+    tutu = np.array2string(rotation_, separator=', ', suppress_small=True, formatter={'all': lambda x: str(x)}).strip(
+        "[]")
+    clean_output = tutu.replace("[", "").replace("]", "").replace("\n", "").strip()
+    # clean_output = ", ".join(clean_output.split())  # Ensure proper spacing
+
+    command = "current_pose = p[" + str(round(t_base_aruco[0], 4)) + "," + str(round(t_base_aruco[1], 4)) + "," + str(
+        round(t_base_aruco[2], 4)) + "," + clean_output + "]"
     return command
-    # Press 'q' to exit
-    if cv2.waitKey(1) & 0xFF == ord('q'):
-        return None
+
+def get_move(sample):
+    # With cv2, finds the aruco and outputs rvec and tvec
+    # and displays image with axis
+    rotation = get_rotation_matrix(sample) #two variables are outputed rvecs and tvecs
+
+    # calculation of the new moovement of the robot
+    outputCommand = matrix_calculation(rotation[0],rotation[1])
+
+    return outputCommand
+
 for i in range(4):
-    command=get_move()
+    command=get_move(10)
     tcp_command2 = """
 def move():
     """+command+"""
@@ -149,7 +187,7 @@ move()
 
     # Send the URScript
     print(tcp_command2)
-    s.send(str.encode(tcp_command2))
+    # s.send(str.encode(tcp_command2))
     # Close the connection
     time.sleep(2)
 s.close()
