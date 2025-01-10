@@ -57,6 +57,7 @@ def get_rotation_matrix(samples): #function that returns rvec and tvec of the ar
             # Estimate pose for each marker
             rvecs, tvecs, _ = cv2.aruco.estimatePoseSingleMarkers(corners, marker_length, camera_matrix, dist_coeffs)
             newRow = [rvecs, tvecs]
+            print(newRow)
             vectorTable.append(newRow)
 
             show_frame(ids,frame, corners, rvecs, tvecs)

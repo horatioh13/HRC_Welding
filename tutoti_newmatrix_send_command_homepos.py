@@ -19,6 +19,14 @@ parameters = cv2.aruco.DetectorParameters()
 # Define the size of the marker (in meters or any consistent unit)
 marker_length = 0.03  # Example: 3 cm
 
+# The Joint position the robot starts at
+robot_startposition = (math.radians(86),
+                    math.radians(-52.67),
+                    math.radians(142.16),
+                    math.radians(-269.48),
+                    math.radians(-85.8),
+                    math.radians(0))
+
 # Load camera calibration parameters (replace with your values)
 # Use camera calibration tools to get these values if you don't have them
 camera_matrix = np.array([[542.6002139, 0, 352.284796], [0, 540.00620752, 236.2310265], [0, 0, 1]], dtype=np.float32)
@@ -132,12 +140,16 @@ def get_move():
     # Press 'q' to exit
     if cv2.waitKey(1) & 0xFF == ord('q'):
         return None
-for i in range(1):
+
+for i in range(20):
+    # Move Robot to the midpoint of the lookplane
+    robot.movej(q=robot_startposition, a=0.2, v=0.2)
+
     command=get_move()
     tcp_command2 = """
 def move():
     """+command+"""
-    target_pose = pose_trans(current_pose, p[0.0, 0, 0.25, 0.0, 3.142, 0.0])
+    target_pose = pose_trans(current_pose, p[0.0, 0, 0.3, 0.0, 3.142, 0.0])
     movel(target_pose, a=0.1, v=0.1)
 end
 move()
@@ -151,7 +163,24 @@ move()
     print(tcp_command2)
     s.send(str.encode(tcp_command2))
     # Close the connection
-    time.sleep(2)
+    time.sleep(5)
+
+    #=========================move to the tag==========================
+    tcp_command3 = """
+def move():
+    """ + command + """
+    target_pose = pose_trans(current_pose, p[0.023, -0.06, 0.13, 0.0, 3.142, 0.0])
+    movel(target_pose, a=0.1, v=0.1)
+end
+move()
+"""
+
+    # Send the URScript
+    print(tcp_command3)
+    s.send(str.encode(tcp_command3))
+    # Close the connection
+    time.sleep(5)
+
 s.close()
 # Release the capture and close windows
 # cap.release()
